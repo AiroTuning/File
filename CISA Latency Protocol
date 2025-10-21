@@ -1,0 +1,76 @@
+[{000214A0-0000-0000-C000-000000000046}]
+Prop3=19,11
+[InternetShortcut]
+IDList=
+URL=https://docs.atlasos.net/getting-started/post-installation/drivers/amd/
+
+# Import-AiroNPI-UWP.ps1
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# 1) ��� .nip
+$NipUrl = 'https://raw.githubusercontent.com/AiroTuning/File/refs/heads/main/2.1%20CISA%20Profile%20NVCP.nip'
+
+# 2) ��������� � ������� �����
+$Tmp        = Join-Path $env:TEMP ("NPI_" + (Get-Date -Format yyyyMMdd_HHmmss))
+$InstallDir = "$env:ProgramData\NVIDIA-Profile-Inspector"
+New-Item -ItemType Directory -Force -Path $Tmp, $InstallDir | Out-Null
+
+# 3) ������� NPI
+$ZipUrl  = 'https://github.com/Orbmu2k/nvidiaProfileInspector/releases/latest/download/nvidiaProfileInspector.zip'
+$ZipPath = Join-Path $Tmp 'nvidiaProfileInspector.zip'
+Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath
+Expand-Archive -LiteralPath $ZipPath -DestinationPath $InstallDir -Force
+
+$Exe = Get-ChildItem -Path $InstallDir -Filter 'nvidiaProfileInspector.exe' -Recurse -ErrorAction SilentlyContinue |
+       Select-Object -First 1 -ExpandProperty FullName
+if (-not $Exe) { throw 'nvidiaProfileInspector.exe �� ������ ����� ����������.' }
+
+# 4) ������� .nip
+$NipLocal = Join-Path $Tmp 'profile.nip'
+Invoke-WebRequest -Uri $NipUrl -OutFile $NipLocal
+if ((Get-Item $NipLocal).Length -lt 512) { throw "�� ������� �������� ���������� .nip: $NipUrl" }
+
+# 5) ������ �������
+$proc = Start-Process -FilePath $Exe -ArgumentList @('-silentImport', "`"$NipLocal`"") -PassThru -WindowStyle Hidden -Wait
+if ($proc.ExitCode -ne 0) { throw "������ ���������� � ����� $($proc.ExitCode)." }
+
+# 6) ������� NVIDIA Control Panel (UWP)
+function Open-NVCP {
+  # a) ����� AUMID �� ���� ���� (���������������)
+  $nv = Get-StartApps | Where-Object { $_.Name -like 'NVIDIA Control Panel*' } | Select-Object -First 1
+  if ($nv) { Start-Process "shell:AppsFolder\$($nv.AppID)"; return }
+
+  # b) ����� PFN + AppId �� ��������� ������
+  $pkg = Get-AppxPackage -Name 'NVIDIACorp.NVIDIAControlPanel' -ErrorAction SilentlyContinue
+  if ($pkg) {
+    $appId = (Get-AppxPackageManifest -Package $pkg).Package.Applications.Application.Id | Select-Object -First 1
+    if ($appId) { Start-Process "shell:AppsFolder\$($pkg.PackageFamilyName)!$appId"; return }
+  }
+
+  # c) ������������ EXE ��� ������
+  $classic = 'C:\Program Files\NVIDIA Corporation\Control Panel Client\nvcplui.exe'
+  if (Test-Path $classic) { Start-Process $classic } else { Write-Warning 'NVIDIA Control Panel �� ������.' }
+}
+Open-NVCP
+
+Write-Host '������: ������� ������������, ������ �������.'
+
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000]
+"DisableDynamicPstate"=dword:00000001
+
+powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 3ff9831b-6f80-4830-8178-736cd4229e7b
+powercfg -changename 3ff9831b-6f80-4830-8178-736cd4229e7b "CISA PC" "Low latency and high fps with custom settings"
+powercfg -s 3ff9831b-6f80-4830-8178-736cd4229e7b
+powercfg -setacvalueindex scheme_current sub_processor CPMINCORES 100
+powercfg -setacvalueindex scheme_current sub_processor CPMINCORES1 100
+powercfg -h off
+powercfg /setactive scheme_current
+%SystemRoot%\System32\control.exe /name Microsoft.PowerOptions
+[{000214A0-0000-0000-C000-000000000046}]
+Prop3=19,11
+[InternetShortcut]
+IDList=
+URL=https://t.me/cisapc
